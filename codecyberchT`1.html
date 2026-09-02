@@ -1,0 +1,845 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<meta name="theme-color" content="#0a0f14">
+<title>CYBER CHAT // anonymous p2p</title>
+<link rel="manifest" href="manifest.json">
+<script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
+<style>
+:root{
+  --bg:#0a0f14; --panel:#0e1620; --panel2:#101c29; --line:#17324a;
+  --green:#00ff9c; --green-dim:#00b56e; --red:#ff3b5c; --amber:#ffc247;
+  --txt:#c8e6d8; --mut:#5c7a6e; --mono:'Cascadia Code','Fira Code',Consolas,'Courier New',monospace;
+}
+*{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
+html,body{height:100%}
+body{
+  background:var(--bg); color:var(--txt); font-family:var(--mono); font-size:14px;
+  overflow:hidden; user-select:none; -webkit-user-select:none;
+}
+/* scanline + grid atmosphere */
+body::before{content:'';position:fixed;inset:0;pointer-events:none;z-index:0;
+  background:repeating-linear-gradient(0deg,transparent 0 2px,rgba(0,255,156,.015) 2px 4px);}
+body::after{content:'';position:fixed;inset:0;pointer-events:none;z-index:0;
+  background:radial-gradient(circle at 50% 0%,rgba(0,255,156,.05),transparent 60%);}
+#app{position:relative;z-index:1;height:100%;display:flex;flex-direction:column}
+.screen{display:none;flex:1;min-height:0;flex-direction:column}
+.screen.on{display:flex}
+/* privacy guard overlay */
+#guard{position:fixed;inset:0;background:var(--bg);z-index:999;display:none;
+  flex-direction:column;align-items:center;justify-content:center;gap:14px}
+#guard.on{display:flex}
+#guard .lock{font-size:44px;color:var(--green)}
+#guard p{color:var(--mut)}
+/* header */
+header{display:flex;align-items:center;justify-content:space-between;
+  padding:10px 16px;border-bottom:1px solid var(--line);background:var(--panel)}
+.brand{font-weight:700;letter-spacing:2px;color:var(--green)}
+.brand small{display:block;font-size:9px;letter-spacing:3px;color:var(--mut)}
+/* avatar */
+.avatar{display:flex;flex-direction:column;align-items:center;gap:4px}
+.avatar .ring{width:44px;height:44px;border-radius:50%;padding:3px;
+  background:conic-gradient(var(--red) 0 100%);transition:background .3s}
+.avatar.active .ring{background:conic-gradient(var(--green) 0 100%)}
+.avatar .cc{width:100%;height:100%;border-radius:50%;background:var(--panel2);
+  border:1px solid var(--line);display:flex;align-items:center;justify-content:center;
+  font-size:13px;font-weight:700;color:var(--green);letter-spacing:1px}
+.avatar .uname{font-size:10px;color:var(--mut);max-width:80px;overflow:hidden;
+  text-overflow:ellipsis;white-space:nowrap}
+/* generic */
+.panel{background:var(--panel);border:1px solid var(--line);border-radius:8px}
+input,textarea,select{
+  width:100%;background:var(--panel2);border:1px solid var(--line);border-radius:6px;
+  color:var(--txt);font-family:var(--mono);font-size:14px;padding:10px 12px;outline:none;
+}
+input:focus,textarea:focus,select:focus{border-color:var(--green-dim)}
+textarea{resize:none}
+.btn{
+  background:transparent;border:1px solid var(--green-dim);color:var(--green);
+  font-family:var(--mono);font-size:13px;letter-spacing:1px;padding:10px 18px;
+  border-radius:6px;cursor:pointer;transition:.15s;
+}
+.btn:hover{background:rgba(0,255,156,.08);box-shadow:0 0 12px rgba(0,255,156,.25)}
+.btn.solid{background:var(--green);color:#04140c;font-weight:700}
+.btn.solid:hover{box-shadow:0 0 18px rgba(0,255,156,.5)}
+.btn.danger{border-color:var(--red);color:var(--red)}
+.btn.danger:hover{background:rgba(255,59,92,.08)}
+.hint{font-size:11px;color:var(--mut)}
+.err{font-size:12px;color:var(--red);min-height:16px}
+/* home */
+#homeBody{flex:1;min-height:0;overflow-y:auto;padding:16px;display:flex;
+  flex-direction:column;gap:16px;max-width:760px;width:100%;margin:0 auto}
+.secTitle{font-size:11px;letter-spacing:3px;color:var(--green-dim);margin-bottom:8px}
+#searchRow{display:flex;gap:8px}
+#searchRow input{flex:1}
+.led{width:9px;height:9px;border-radius:50%;display:inline-block;flex:none}
+.led.red{background:var(--red);box-shadow:0 0 8px var(--red)}
+.led.green{background:var(--green);box-shadow:0 0 8px var(--green)}
+.statusRow{display:flex;align-items:center;gap:8px;font-size:12px;letter-spacing:1px}
+/* recent list */
+.recent{display:flex;align-items:center;justify-content:space-between;
+  padding:10px 12px;border:1px solid var(--line);border-radius:6px;
+  margin-bottom:6px;cursor:pointer;background:var(--panel2)}
+.recent:hover{border-color:var(--green-dim)}
+.recent .nm{color:var(--txt)}
+.recent .ts{font-size:10px;color:var(--mut)}
+/* waiting panel */
+#wLink{word-break:break-all;font-size:11px;color:var(--green);user-select:text;
+  -webkit-user-select:text;padding:10px;background:#04140c;border:1px dashed var(--green-dim);border-radius:6px}
+#wCount{color:var(--amber)}
+/* nudge banner */
+#nudge{display:none;align-items:flex-start;gap:10px;margin:16px auto 0;max-width:760px;
+  width:calc(100% - 32px);padding:12px 14px;border:1px solid var(--amber);border-radius:8px;
+  background:rgba(255,194,71,.06);font-size:12px;color:var(--amber)}
+#nudge.on{display:flex}
+#nudge button{background:none;border:none;color:var(--amber);font-size:16px;cursor:pointer;flex:none}
+/* modal */
+.overlay{position:fixed;inset:0;background:rgba(4,10,16,.85);z-index:100;
+  display:none;align-items:center;justify-content:center;padding:16px}
+.overlay.on{display:flex}
+.modal{width:100%;max-width:520px;padding:20px;display:flex;flex-direction:column;gap:12px;
+  max-height:90vh;overflow-y:auto}
+/* visitor / knock cards */
+.card{padding:14px;display:flex;flex-direction:column;gap:10px}
+.card .big{font-size:13px;color:var(--green);letter-spacing:1px}
+.row{display:flex;gap:8px}
+.row .btn{flex:1}
+/* chat */
+#chatHeader{display:flex;align-items:center;gap:12px}
+#chatHeader .statusCol{display:flex;flex-direction:column;gap:2px;flex:1}
+#connLabel{font-size:12px;letter-spacing:1px}
+#typingLabel{font-size:10px;color:var(--green-dim);min-height:14px}
+#msgs{flex:1;min-height:0;overflow-y:auto;padding:16px;display:flex;
+  flex-direction:column;gap:10px;max-width:760px;width:100%;margin:0 auto}
+.bubble{max-width:78%;padding:8px 12px;border-radius:8px;border:1px solid var(--line);
+  background:var(--panel);display:flex;flex-direction:column;gap:4px}
+.bubble.me{align-self:flex-end;background:var(--panel2);border-color:var(--green-dim)}
+.bubble .who{font-size:10px;color:var(--green-dim);letter-spacing:1px}
+.bubble .who.me{color:var(--mut)}
+.bubble .txt{user-select:text;-webkit-user-select:text;word-break:break-word}
+.bubble .quote{font-size:11px;color:var(--mut);border-left:2px solid var(--green-dim);
+  padding-left:6px;word-break:break-word}
+.bubble .meta{font-size:9px;color:var(--mut);text-align:right}
+.bubble.new{border-color:var(--amber);box-shadow:0 0 10px rgba(255,194,71,.2)}
+.bubble .acts{display:flex;gap:10px;font-size:10px}
+.bubble .acts button{background:none;border:none;color:var(--mut);cursor:pointer;
+  font-family:var(--mono);font-size:10px;padding:0}
+.bubble .acts button:hover{color:var(--green)}
+#inputRow{display:flex;gap:8px;padding:12px 16px;border-top:1px solid var(--line);
+  background:var(--panel);align-items:flex-end;max-width:760px;width:100%;margin:0 auto}
+#inputRow textarea{flex:1;min-height:44px;max-height:120px}
+#replyBar{display:none;align-items:center;justify-content:space-between;gap:8px;
+  padding:6px 16px;border-top:1px solid var(--line);background:var(--panel2);
+  font-size:11px;color:var(--mut);max-width:760px;width:100%;margin:0 auto}
+#replyBar.on{display:flex}
+#replyBar button{background:none;border:none;color:var(--red);cursor:pointer;font-size:14px}
+/* center screens (lock / register / expired / welcome) */
+.center{flex:1;display:flex;align-items:center;justify-content:center;padding:16px}
+.center .modal{max-width:420px}
+#chatMain{flex:1;min-height:0;display:flex;flex-direction:column}
+@media(max-width:600px){.bubble{max-width:88%}}
+</style>
+</head>
+<body>
+<div id="guard"><div class="lock">🛡️</div><p>SCREEN HIDDEN // privacy guard active</p><p class="hint">click anywhere to resume</p></div>
+
+<div id="app">
+  <!-- ===== LOCK SCREEN ===== -->
+  <div class="screen" id="scLock">
+    <div class="center"><div class="modal panel">
+      <div class="brand">CYBER CHAT<small>// anonymous p2p terminal</small></div>
+      <p class="hint">account found on this device — decrypt to continue</p>
+      <input id="lockUser" placeholder="username" autocomplete="off">
+      <input id="lockPass" type="password" placeholder="password">
+      <div class="err" id="lockErr"></div>
+      <button class="btn solid" id="lockBtn">DECRYPT &gt;&gt;</button>
+      <button class="btn danger" id="wipeBtn">wipe device account</button>
+    </div></div>
+  </div>
+
+  <!-- ===== REGISTER ===== -->
+  <div class="screen" id="scReg">
+    <div class="center"><div class="modal panel">
+      <div class="brand">CYBER CHAT<small>// identity setup</small></div>
+      <input id="regUser" placeholder="username (letters + symbols)" autocomplete="off">
+      <input id="regPass" type="password" placeholder="password (letters + digits + symbols)">
+      <input id="regPass2" type="password" placeholder="repeat password">
+      <div class="err" id="regErr"></div>
+      <button class="btn solid" id="regBtn">CREATE IDENTITY</button>
+      <div class="row">
+        <button class="btn" id="guestBtn">continue as guest</button>
+        <button class="btn" id="loginBtn2">login</button>
+      </div>
+      <p class="hint">saved only to THIS device. no server. no history. no pics.</p>
+    </div></div>
+  </div>
+
+  <!-- ===== LOGIN ===== -->
+  <div class="screen" id="scLogin">
+    <div class="center"><div class="modal panel">
+      <div class="brand">CYBER CHAT<small>// identity login</small></div>
+      <input id="regUserL" placeholder="username" autocomplete="off">
+      <input id="regPassL" type="password" placeholder="password">
+      <div class="err" id="regErrL"></div>
+      <button class="btn solid" id="loginBtn">LOGIN</button>
+      <button class="btn" id="backBtn">&lt;&lt; back</button>
+    </div></div>
+  </div>
+
+  <!-- ===== HOME ===== -->
+  <div class="screen" id="scHome">
+    <header>
+      <div class="brand">CYBER CHAT<small>// room: <span id="homeStatusTxt">idle</span></small></div>
+      <div class="avatar" id="homeAvatar">
+        <div class="ring"><div class="cc">CC</div></div>
+        <div class="uname" id="homeUname"></div>
+      </div>
+    </header>
+    <div id="nudge">
+      <span id="nudgeMsg"></span><button id="nudgeX">✕</button>
+    </div>
+    <div id="homeBody">
+      <!-- METHOD A : invite link -->
+      <div class="panel" style="padding:16px;display:flex;flex-direction:column;gap:10px">
+        <div class="secTitle">// METHOD A — INVITE LINK</div>
+        <div id="waitingPanel" style="display:none;flex-direction:column;gap:10px">
+          <div class="statusRow"><span class="led red" id="wLed"></span><span id="wStatus">WAITING FOR CONNECTION…</span></div>
+          <div class="hint">send this link in any chat app — countdown: <span id="wCount"></span></div>
+          <div id="wLink" title="select & copy"></div>
+          <div class="row">
+            <button class="btn" id="copyBtn">copy link</button>
+            <button class="btn danger" id="cancelInviteBtn">cancel</button>
+          </div>
+        </div>
+        <button class="btn solid" id="inviteBtn">+ INVITE A CHAT</button>
+      </div>
+      <!-- METHOD B : knock -->
+      <div class="panel" style="padding:16px;display:flex;flex-direction:column;gap:10px">
+        <div class="secTitle">// METHOD B — SEARCH IDENTITY</div>
+        <div class="row" id="searchRow">
+          <input id="searchInput" placeholder="search username…" autocomplete="off">
+          <button class="btn" id="knockBtn">KNOCK</button>
+        </div>
+        <div class="err" id="searchErr"></div>
+        <div id="visitorSlot"></div>
+        <div id="knockReplySlot"></div>
+      </div>
+      <!-- recents -->
+      <div class="panel" style="padding:16px">
+        <div class="secTitle">// RECENT CHATS (names only — messages never stored)</div>
+        <input id="recentSearch" placeholder="filter recent…" autocomplete="off" style="margin-bottom:8px">
+        <div id="recentList"></div>
+        <div class="hint" id="recentEmpty"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== CHAT ===== -->
+  <div class="screen" id="scChat">
+    <div id="chatMain">
+      <header id="chatHeader">
+        <div class="avatar active" id="peerAvatar">
+          <div class="ring"><div class="cc">CC</div></div>
+          <div class="uname" id="peerUname">…</div>
+        </div>
+        <div class="statusCol">
+          <div class="statusRow"><span class="led red" id="cLed"></span><span id="connLabel">CONNECTING…</span></div>
+          <div id="typingLabel"></div>
+        </div>
+        <div class="avatar active" id="meAvatar">
+          <div class="ring"><div class="cc">CC</div></div>
+          <div class="uname" id="meUname"></div>
+        </div>
+      </header>
+      <div id="msgs"></div>
+      <div id="replyBar"><span id="replyTxt"></span><button id="replyX">✕</button></div>
+      <div id="inputRow">
+        <textarea id="msgInput" placeholder="type message… [Enter] send"></textarea>
+        <button class="btn solid" id="sendBtn">SEND &gt;</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== GUEST WELCOME ===== -->
+  <div class="screen" id="scWelcome">
+    <div class="center"><div class="modal panel">
+      <div class="brand">CYBER CHAT<small>// incoming invite</small></div>
+      <div class="card">
+        <div class="big">&gt; MESSAGE FROM HOST:</div>
+        <p id="welcomeMsg" style="color:var(--txt);user-select:text;-webkit-user-select:text"></p>
+        <p class="hint" id="welcomeExp"></p>
+        <button class="btn solid" id="joinBtn">OPEN SECURE CHAT &gt;&gt;</button>
+        <div class="err" id="welcomeErr"></div>
+      </div>
+    </div></div>
+  </div>
+
+  <!-- ===== LINK EXPIRED ===== -->
+  <div class="screen" id="scExpired">
+    <div class="center"><div class="modal panel">
+      <div class="brand">CYBER CHAT<small>// invite rejected</small></div>
+      <div class="card">
+        <div class="big" style="color:var(--red)">⚠ LINK EXPIRED</div>
+        <p class="hint">this invite link is no longer valid. ask the host to resend an invite link.</p>
+        <button class="btn" id="expiredHomeBtn">&gt;&gt; enter cyber chat</button>
+      </div>
+    </div></div>
+  </div>
+</div>
+
+<!-- ===== INVITE MODAL ===== -->
+<div class="overlay" id="inviteOverlay"><div class="modal panel">
+  <div class="brand">GENERATE INVITE<small>// method A</small></div>
+  <textarea id="invWelcome" rows="3" maxlength="200" placeholder="welcome message the invited user will see…"></textarea>
+  <select id="invExp">
+    <option value="30">expires in 30 minutes</option>
+    <option value="60">expires in 1 hour</option>
+    <option value="360">expires in 6 hours</option>
+    <option value="720">expires in 12 hours</option>
+    <option value="1440">expires in 1 day</option>
+    <option value="4320">expires in 3 days</option>
+  </select>
+  <div class="err" id="invErr"></div>
+  <div class="row">
+    <button class="btn solid" id="invGenBtn">GENERATE SECURE LINK</button>
+    <button class="btn" id="invCancelBtn">cancel</button>
+  </div>
+</div></div>
+
+<script>
+'use strict';
+/* ============================================================
+   CYBER CHAT — serverless p2p encrypted chat (final consolidated)
+   Transport : WebRTC DataChannel (DTLS) via PeerJS free cloud (signaling only)
+   E2EE      : ECDH P-256 + out-of-band PSK (link #fragment, never transmitted)
+               session key = HKDF-SHA256(ecdhBits, salt=PSK, info='cyberchat-v1')
+               messages    = AES-256-GCM
+   Storage   : usernames only (never messages) + salted PBKDF2 account hash
+============================================================ */
+const $=id=>document.getElementById(id);
+const PEPPER='cyberchat::v1::identity';
+const ECDH_ZERO=new Uint8Array(32); // HKDF salt for knock/delivery channels (no PSK)
+const now=()=>Date.now();
+const esc=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+
+/* ---------- base64url / random ---------- */
+const b64u=buf=>btoa(String.fromCharCode(...new Uint8Array(buf))).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
+const ub64u=s=>Uint8Array.from(atob(s.replace(/-/g,'+').replace(/_/g,'/')),c=>c.charCodeAt(0));
+const rbytes=n=>crypto.getRandomValues(new Uint8Array(n));
+const tid=()=>b64u(rbytes(9)).replace(/[-_]/g,'x');
+
+/* ---------- crypto ---------- */
+async function sha256hex(str){
+  const d=await crypto.subtle.digest('SHA-256',new TextEncoder().encode(str));
+  return [...new Uint8Array(d)].map(b=>b.toString(16).padStart(2,'0')).join('');
+}
+async function pbkdf2(pass,salt){
+  const km=await crypto.subtle.importKey('raw',new TextEncoder().encode(pass),'PBKDF2',false,['deriveBits']);
+  return crypto.subtle.deriveBits({name:'PBKDF2',salt,iterations:310000,hash:'SHA-256'},km,256);
+}
+async function makeEcdh(){
+  const kp=await crypto.subtle.generateKey({name:'ECDH',namedCurve:'P-256'},true,['deriveBits']);
+  return {kp,pub:await crypto.subtle.exportKey('raw',kp.publicKey)};
+}
+async function sessionKey(kp,remotePubRaw,psk){
+  const remote=await crypto.subtle.importKey('raw',remotePubRaw,{name:'ECDH',namedCurve:'P-256'},false,[]);
+  const bits=await crypto.subtle.deriveBits({name:'ECDH',public:remote},kp.privateKey,256);
+  const base=await crypto.subtle.importKey('raw',bits,'HKDF',false,['deriveBits']);
+  const out=await crypto.subtle.deriveBits(
+    {name:'HKDF',hash:'SHA-256',salt:(psk&&psk.length)?psk:ECDH_ZERO,
+     info:new TextEncoder().encode('cyberchat-v1')},base,256);
+  return crypto.subtle.importKey('raw',out,{name:'AES-GCM'},false,['encrypt','decrypt']);
+}
+async function seal(key,obj){
+  const iv=rbytes(12);
+  const ct=await crypto.subtle.encrypt({name:'AES-GCM',iv},key,new TextEncoder().encode(JSON.stringify(obj)));
+  return {t:'e',iv:b64u(iv),ct:b64u(ct)};
+}
+async function open_(key,pkt){
+  const pt=await crypto.subtle.decrypt({name:'AES-GCM',iv:ub64u(pkt.iv)},key,ub64u(pkt.ct));
+  return JSON.parse(new TextDecoder().decode(pt));
+}
+
+/* ---------- local account (PBKDF2 hash only — password NEVER stored) ---------- */
+const ACC_KEY='cc_account',RECENT_KEY='cc_recent';
+async function registerUser(u,p){
+  const salt=rbytes(16),hash=await pbkdf2(p,salt);
+  localStorage.setItem(ACC_KEY,JSON.stringify({u,salt:b64u(salt),hash:b64u(hash)}));
+}
+async function verifyUser(u,p){
+  try{
+    const a=JSON.parse(localStorage.getItem(ACC_KEY));
+    const hash=await pbkdf2(p,ub64u(a.salt));
+    return a.u===u&&b64u(hash)===a.hash?a.u:null;
+  }catch(e){return null}
+}
+const getAcc=()=>{try{return JSON.parse(localStorage.getItem(ACC_KEY))}catch(e){return null}};
+const hasAcc=()=>!!getAcc();
+const myName=()=>{const a=getAcc();return a?a.u:'Unknown CC'};
+
+/* ---------- recents (usernames ONLY — never messages) ---------- */
+function addRecent(name){
+  let l=[];try{l=JSON.parse(localStorage.getItem(RECENT_KEY))||[]}catch(e){}
+  l=l.filter(r=>r.n!==name);l.unshift({n:name,ts:now()});l=l.slice(0,30);
+  localStorage.setItem(RECENT_KEY,JSON.stringify(l));renderRecents();
+}
+function renderRecents(){
+  let l=[];try{l=JSON.parse(localStorage.getItem(RECENT_KEY))||[]}catch(e){}
+  const f=($('recentSearch').value||'').toLowerCase();
+  const list=l.filter(r=>r.n.toLowerCase().includes(f));
+  $('recentList').innerHTML=list.map(r=>
+    `<div class="recent" data-n="${esc(r.n)}"><span class="nm">&gt; ${esc(r.n)}</span>`+
+    `<span class="ts">${new Date(r.ts).toLocaleString()}</span></div>`).join('');
+  $('recentEmpty').textContent=list.length?'':'// no recent chats yet';
+}
+$('recentSearch').addEventListener('input',renderRecents);
+$('recentList').addEventListener('click',e=>{
+  const el=e.target.closest('.recent');if(!el)return;
+  if(hasAcc()){ $('searchInput').value=el.dataset.n;$('searchInput').focus(); }
+  else $('searchErr').textContent='// reconnecting by name needs an account — re-invite link users instead';
+});
+
+/* ============================================================
+   PEER LAYER
+============================================================ */
+let peer=null,activeSession=null,pendingGuest=false,pendingProbe=null;
+const invites=new Map(); // rid -> {psk,expiry,welcome}  (multiple live invites OK)
+const ICE={iceServers:[
+  {urls:'stun:stun.l.google.com:19302'},
+  {urls:'turn:openrelay.metered.ca:80',username:'openrelayproject',credential:'openrelayproject'},
+  {urls:'turn:openrelay.metered.ca:443',username:'openrelayproject',credential:'openrelayproject'}
+]};
+function setHomeStatus(t){$('homeStatusTxt').textContent=t}
+function attachPeerHandlers(p,deterministicId){
+  p.on('open',()=>{setHomeStatus('listening // secure room open');$('homeAvatar').classList.add('active');});
+  p.on('disconnected',()=>{$('homeAvatar').classList.remove('active');p.reconnect();});
+  p.on('error',e=>{
+    if(e.type==='peer-unavailable'){
+      if(pendingGuest){pendingGuest=false;showExpired();}
+      if(pendingProbe){const f=pendingProbe;pendingProbe=null;f();}
+    }else if(e.type==='unavailable-id'&&deterministicId){
+      // identity held by another tab — fall back to a random room id
+      peer=new Peer('cc1'+tid()+tid(),{config:ICE,debug:1});
+      attachPeerHandlers(peer,false);
+    }
+  });
+  p.on('connection',conn=>conn.on('open',()=>{
+    new ChatSession(conn,'host',{rid:null,psk:null}); // PSK resolved from rid at e2e
+  }));
+}
+async function ensurePeer(){
+  if(peer&&!peer.destroyed&&!peer.disconnected)return peer;
+  const acc=getAcc();
+  const det=!!acc;
+  const id=det?'cc1'+(await sha256hex(acc.u+'::'+PEPPER)).slice(0,40):'cc1'+tid()+tid();
+  peer=new Peer(id,{config:ICE,debug:1});
+  attachPeerHandlers(peer,det);
+  return peer;
+}
+
+/* ============================================================
+   INVITE LINKS
+   #h=hostPeerId & r=roomId & k=PSK & e=expiryMs & w=welcome
+   (everything after # is never sent to any server — out-of-band secret)
+============================================================ */
+function makeInvite(welcome,ms){
+  const rid=tid(),rec={psk:rbytes(32),expiry:now()+ms,welcome};
+  invites.set(rid,rec);
+  const frag=`h=${peer.id}&r=${rid}&k=${b64u(rec.psk)}&e=${rec.expiry}`+
+             `&w=${encodeURIComponent(welcome)}`;
+  return {rid,rec,link:location.origin+location.pathname+'#'+frag};
+}
+function parseInviteLink(){
+  if(!location.hash||location.hash.length<10)return null;
+  const p={};location.hash.slice(1).split('&').forEach(kv=>{
+    const i=kv.indexOf('=');p[kv.slice(0,i)]=kv.slice(i+1);});
+  if(!p.h||!p.r||!p.k||!p.e)return null;
+  return {host:p.h,rid:p.r,psk:ub64u(p.k),expiry:+p.e,welcome:p.w?decodeURIComponent(p.w):''};
+}
+const fmtMs=ms=>{
+  const s=Math.max(0,Math.floor(ms/1000)),d=Math.floor(s/86400),h=Math.floor(s%86400/3600),
+        m=Math.floor(s%3600/60);
+  return (d?d+'d ':'')+(h||d?h+'h ':'')+((m||h||d)?m+'m ':'')+(s%60)+'s';
+};
+
+/* ============================================================
+   CHAT SESSION
+============================================================ */
+class ChatSession{
+  constructor(conn,role,meta){
+    this.conn=conn;this.role=role;this.meta=meta;
+    this.key=null;this.ecdh=null;this.peerName=null;
+    this.closed=false;this.knock=!!meta.knock;this.knockLink=null;
+    conn.on('data',d=>this.onData(d));
+    conn.on('close',()=>this.onClose());
+    conn.on('error',()=>this.onClose());
+  }
+  async handshake(){
+    this.ecdh=await makeEcdh();
+    this.sendRaw(this.role==='guest'
+      ?{t:'e2e',p:b64u(this.ecdh.pub),r:this.meta.rid}
+      :{t:'e2e',p:b64u(this.ecdh.pub)});
+  }
+  sendRaw(o){if(!this.closed)try{this.conn.send(o)}catch(e){}}
+  async send(o){if(this.key&&!this.closed)this.conn.send(await seal(this.key,o));}
+  async onData(d){
+    try{
+      if(d&&d.t==='e2e'&&!this.key){
+        if(this.role==='host'){
+          const rec=(d.r&&invites.get(d.r))||null;
+          this.meta.psk=rec?rec.psk:ECDH_ZERO; // knock/delivery channels use zero salt
+        }
+        this.ecdh=await makeEcdh();
+        this.sendRaw({t:'e2e',p:b64u(this.ecdh.pub)});
+        this.key=await sessionKey(this.ecdh.kp,ub64u(d.p),this.meta.psk);
+        if(this.role==='guest'){
+          if(this.knock) await this.send({t:'knock',n:this.meta.myName,link:this.knockLink});
+          else await this.send({t:'hello',n:this.meta.myName||'Unknown CC',r:this.meta.rid});
+        }
+        return;
+      }
+      if(!this.key)return;
+      const o=await open_(this.key,d);
+      if(o.t==='hello'&&this.role==='host'){
+        const rec=invites.get(o.r);
+        if(!rec||rec.expiry<now()){await this.send({t:'bad'});setTimeout(()=>this.conn.close(),400);return;}
+        this.peerName=o.n||'Unknown CC';
+        await this.send({t:'welcome',n:myName()});
+        addRecent(this.peerName);
+        startChat(this);
+      }
+      else if(o.t==='welcome'&&this.role==='guest'){
+        this.peerName=o.n||'host';addRecent(this.peerName);startChat(this);
+      }
+      else if(o.t==='bad'){this.closed=true;showExpired();}
+      else if(o.t==='chat'){addBubble(this.peerName,o.txt,o.q,false);notifyMsg(this.peerName,o.txt);}
+      else if(o.t==='typing'){showTyping(o.on);}
+      else if(o.t==='knock'&&this.role==='host'){hostKnock(this,o);}
+      else if(o.t==='knockack'&&this.role==='guest'){setHomeStatus('knock delivered // waiting for reply…');}
+      else if(o.t==='knockreply'&&this.role==='guest'){hostKnockReply(this,o);}
+    }catch(e){/* decrypt failure = wrong peer/PSK — ignore */}
+  }
+  onClose(){
+    if(this.closed)return;this.closed=true;
+    if(activeSession===this){
+      setConn(false,'DISCONNECTED');showTyping(false);
+      setTimeout(()=>{if(activeSession===this&&this.closed)goHome('peer disconnected — messages destroyed');},1600);
+    }
+  }
+}
+
+/* ============================================================
+   UI CORE
+============================================================ */
+function show(sc){document.querySelectorAll('.screen').forEach(s=>s.classList.remove('on'));$(sc).classList.add('on')}
+function setLED(el,on){el.className='led '+(on?'green':'red')}
+function setConn(on,label){$('connLabel').textContent=label;setLED($('cLed'),on)}
+function showExpired(){pendingGuest=false;show('scExpired')}
+function goHome(msg){
+  activeSession=null;replyTo=null;
+  $('replyBar').classList.remove('on');
+  show('scHome');
+  $('homeUname').textContent=myName();
+  $('homeAvatar').classList.toggle('active',!!(peer&&!peer.disconnected));
+  if(msg)setHomeStatus(msg);
+  renderRecents();
+}
+async function startApp(){
+  await ensurePeer();
+  goHome('// listening for connections');
+  if(!hasAcc())setTimeout(showNudge,20*60*1000); // 20-min accountless nudge
+}
+
+/* ============================================================
+   BOOT — invite link takes priority, then lock/register
+============================================================ */
+(async function boot(){
+  renderRecents();
+  const inv=parseInviteLink();
+  if(inv){
+    if(inv.expiry<now()){show('scExpired');return;}
+    $('welcomeMsg').textContent=inv.welcome||'(secure invite)';
+    $('welcomeExp').textContent='link valid for '+fmtMs(inv.expiry-now());
+    show('scWelcome');return;
+  }
+  if(getAcc()){$('lockUser').value=getAcc().u;show('scLock');}
+  else show('scReg');
+})();
+
+/* lock screen */
+$('lockBtn').onclick=async()=>{
+  const u=await verifyUser($('lockUser').value.trim(),$('lockPass').value);
+  if(u){$('lockErr').textContent='';await startApp();}
+  else $('lockErr').textContent='// decrypt failed — wrong credentials';
+};
+$('wipeBtn').onclick=()=>{if(confirm('wipe account from this device?')){localStorage.removeItem(ACC_KEY);show('scReg');}};
+$('lockPass').addEventListener('keydown',e=>{if(e.key==='Enter')$('lockBtn').click()});
+
+/* register / login / guest */
+const USER_OK=u=>/^(?=.*[A-Za-z])[A-Za-z0-9!@#$%^&*()_+\-=\[\]{};':"\\|,.<>\/?~`]{3,20}$/.test(u);
+const PASS_OK=p=>p.length>=8&&/[A-Za-z]/.test(p)&&/[0-9]/.test(p)&&/[^A-Za-z0-9]/.test(p);
+$('regBtn').onclick=async()=>{
+  const u=$('regUser').value.trim(),p=$('regPass').value,p2=$('regPass2').value;
+  if(!USER_OK(u)){$('regErr').textContent='// username: 3–20 chars, letters (+symbols) required';return;}
+  if(!PASS_OK(p)){$('regErr').textContent='// password: 8+ chars, must contain letters + digits + symbols';return;}
+  if(p!==p2){$('regErr').textContent='// passwords do not match';return;}
+  await registerUser(u,p);$('regErr').textContent='';await startApp();
+};
+$('guestBtn').onclick=()=>startApp();
+$('loginBtn2').onclick=()=>show('scLogin');
+$('backBtn').onclick=()=>show('scReg');
+$('loginBtn').onclick=async()=>{
+  if(!getAcc()){$('regErrL').textContent='// no account on this device — create one';return;}
+  const u=await verifyUser($('regUserL').value.trim(),$('regPassL').value);
+  if(u){$('regErrL').textContent='';await startApp();}
+  else $('regErrL').textContent='// login failed';
+};
+$('expiredHomeBtn').onclick=()=>{history.replaceState(null,'',location.pathname);startApp();};
+
+/* ============================================================
+   METHOD A — INVITE LINK
+============================================================ */
+let countdown=null,currentInviteRid=null,cancelMode='cancel';
+$('inviteBtn').onclick=async()=>{
+  askNotify();
+  await ensurePeer();
+  $('invErr').textContent='';$('invWelcome').value='';
+  $('inviteOverlay').classList.add('on');
+};
+$('invCancelBtn').onclick=()=>$('inviteOverlay').classList.remove('on');
+$('invGenBtn').onclick=()=>{
+  const w=$('invWelcome').value.trim();
+  if(!w){$('invErr').textContent='// type the welcome message first';return;}
+  const inv=makeInvite(w,+$('invExp').value*60000);
+  currentInviteRid=inv.rid;
+  $('inviteOverlay').classList.remove('on');
+  $('waitingPanel').style.display='flex';
+  cancelMode='cancel';$('cancelInviteBtn').textContent='CANCEL';
+  $('wLink').textContent=inv.link;
+  $('wStatus').textContent='WAITING FOR CONNECTION…';
+  setLED($('wLed'),false);
+  setHomeStatus('reading // waiting for connection');
+  startCountdown(inv.rec);
+};
+$('copyBtn').onclick=async()=>{
+  try{await navigator.clipboard.writeText($('wLink').textContent);
+    $('copyBtn').textContent='COPIED ✓';setTimeout(()=>$('copyBtn').textContent='copy link',1500);}
+  catch(e){const r=document.createRange();r.selectNode($('wLink'));getSelection().removeAllRanges();getSelection().addRange(r);}
+};
+$('cancelInviteBtn').onclick=()=>{
+  if(cancelMode==='resend'){$('waitingPanel').style.display='none';$('inviteBtn').click();return;}
+  if(currentInviteRid)invites.delete(currentInviteRid);
+  currentInviteRid=null;
+  if(countdown){clearInterval(countdown);countdown=null;}
+  $('waitingPanel').style.display='none';setHomeStatus('idle');
+};
+function startCountdown(rec){
+  if(countdown)clearInterval(countdown);
+  const tick=()=>{
+    const left=rec.expiry-now();
+    if(left<=0){
+      clearInterval(countdown);countdown=null;
+      if(currentInviteRid)invites.delete(currentInviteRid);
+      $('wStatus').textContent='LINK EXPIRED';$('wCount').textContent='expired';
+      cancelMode='resend';$('cancelInviteBtn').textContent='RESEND INVITE LINK';
+      return;
+    }
+    $('wCount').textContent=fmtMs(left);
+  };
+  tick();countdown=setInterval(tick,1000);
+}
+
+/* guest: open an invite link */
+function openLink(link){
+  const i=link.indexOf('#');if(i<0)return;
+  history.replaceState(null,'',location.pathname+link.slice(i));
+  const inv=parseInviteLink();
+  if(!inv||inv.expiry<now()){showExpired();return;}
+  $('welcomeMsg').textContent=inv.welcome||'(secure invite)';
+  $('welcomeExp').textContent='link valid for '+fmtMs(inv.expiry-now());
+  show('scWelcome');
+}
+$('joinBtn').onclick=async()=>{
+  const inv=parseInviteLink();
+  if(!inv||inv.expiry<now()){showExpired();return;}
+  $('welcomeErr').textContent='';
+  await ensurePeer();
+  show('scChat');setConn(false,'CONNECTING…');
+  $('peerUname').textContent='…';$('meUname').textContent=myName();
+  $('msgs').innerHTML='';
+  pendingGuest=true;
+  const conn=peer.connect(inv.host,{reliable:true});
+  const s=new ChatSession(conn,'guest',{rid:inv.rid,psk:inv.psk,myName:myName()});
+  activeSession=s;
+  conn.on('open',()=>s.handshake());
+};
+
+/* ============================================================
+   LIVE CHAT UI
+============================================================ */
+let replyTo=null,typingSentAt=0,typingOffTimer=null;
+function startChat(session){
+  activeSession=session;
+  if(countdown){clearInterval(countdown);countdown=null;}
+  $('waitingPanel').style.display='none';
+  $('visitorSlot').innerHTML='';$('knockReplySlot').innerHTML='';
+  $('peerUname').textContent=session.peerName||'Unknown CC';
+  $('meUname').textContent=myName();
+  $('peerAvatar').classList.add('active');
+  show('scChat');
+  setConn(true,'CONNECTED');
+  $('msgs').innerHTML='';
+  sysLine('secure channel established — ECDH P-256 + AES-256-GCM — no history stored');
+  notify('CYBER CHAT','CC Chat connected');
+}
+function sysLine(t){
+  const d=document.createElement('div');
+  d.style.cssText='align-self:center;font-size:10px;color:var(--mut);letter-spacing:1px;text-align:center';
+  d.textContent=t;$('msgs').appendChild(d);
+  $('msgs').scrollTop=$('msgs').scrollHeight;
+}
+function addBubble(who,txt,q,me){
+  const d=document.createElement('div');
+  d.className='bubble'+(me?' me':'');
+  d.innerHTML=`<div class="who ${me?'me':''}">${esc(who||'')}</div>`+
+    (q?`<div class="quote">↩ ${esc(q)}</div>`:'')+
+    `<div class="txt">${esc(txt)}</div>`+
+    `<div class="meta">${new Date().toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'})}${me?' ✓ sent':''}</div>`+
+    `<div class="acts"><button class="rpl">↩ reply</button></div>`;
+  d.querySelector('.rpl').onclick=()=>{
+    replyTo=txt;
+    $('replyTxt').textContent='↩ replying to '+(who||'')+': '+txt.slice(0,50);
+    $('replyBar').classList.add('on');$('msgInput').focus();
+  };
+  if(!me){d.classList.add('new');const rm=()=>d.classList.remove('new');setTimeout(rm,5000);d.addEventListener('click',rm,{once:true});}
+  $('msgs').appendChild(d);$('msgs').scrollTop=$('msgs').scrollHeight;
+}
+function showTyping(on){
+  $('typingLabel').textContent=on?((activeSession&&activeSession.peerName||'…')+' is typing…'):'';
+}
+async function sendMsg(){
+  const inp=$('msgInput'),txt=inp.value.trim();
+  if(!txt)return;
+  if(!activeSession||activeSession.closed)return;
+  const q=replyTo;replyTo=null;$('replyBar').classList.remove('on');
+  inp.value='';
+  await activeSession.send({t:'chat',txt,q});
+  addBubble(myName(),txt,q,true);
+}
+$('sendBtn').onclick=sendMsg;
+$('replyX').onclick=()=>{replyTo=null;$('replyBar').classList.remove('on')};
+$('msgInput').addEventListener('keydown',e=>{
+  if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();sendMsg();}
+});
+$('msgInput').addEventListener('input',()=>{
+  if(!activeSession||activeSession.closed)return;
+  const t=now();
+  if(t-typingSentAt>1200){typingSentAt=t;activeSession.send({t:'typing',on:true});}
+  clearTimeout(typingOffTimer);
+  typingOffTimer=setTimeout(()=>{if(activeSession&&!activeSession.closed)activeSession.send({t:'typing',on:false});},1600);
+});
+
+/* ============================================================
+   METHOD B — KNOCK (username search, both need accounts)
+============================================================ */
+$('knockBtn').onclick=async()=>{
+  const name=$('searchInput').value.trim(),err=$('searchErr');
+  err.textContent='';
+  if(!hasAcc()){err.textContent='// method B requires an account (your username IS your address)';return;}
+  if(!name){err.textContent='// type a username';return;}
+  if(name===myName()){err.textContent="// that's you";return;}
+  await ensurePeer();
+  err.textContent='';setHomeStatus('searching // '+name+'…');
+  const target='cc1'+(await sha256hex(name+'::'+PEPPER)).slice(0,40);
+  const conn=peer.connect(target,{reliable:true});
+  let opened=false;
+  pendingProbe=()=>{if(!opened){err.textContent='// '+name+' is not reachable — they must have CyberChat open (no server can hold knocks)';setHomeStatus('idle');}};
+  setTimeout(()=>{if(!opened&&pendingProbe){const f=pendingProbe;pendingProbe=null;f();}},8000);
+  conn.on('open',async()=>{
+    opened=true;pendingProbe=null;
+    const s=new ChatSession(conn,'guest',{rid:'knock-'+tid(),psk:ECDH_ZERO,myName:myName(),knock:true});
+    s.knockLink=makeInvite('Knock, knock',30*60000).link; // 30-min link to MY room
+    await s.handshake();
+    setHomeStatus('knocking // '+name+'…');
+  });
+};
+async function hostKnock(session,o){
+  await session.send({t:'knockack'});
+  const slot=$('visitorSlot');
+  slot.innerHTML=`<div class="panel card">
+    <div class="big">⚠ YOU HAD A VISITOR</div>
+    <p class="hint">${esc(o.n||'Unknown CC')} knocked on your room.</p>
+    <div class="row">
+      <button class="btn solid" id="seeVisitorBtn">SEE VISITOR</button>
+      <button class="btn danger" id="cancelVisitorBtn">CANCEL ✕</button>
+    </div></div>`;
+  $('seeVisitorBtn').onclick=async()=>{
+    const inv=makeInvite('Hey you visited me',30*60000); // reverse 30-min link
+    await session.send({t:'knockreply',n:myName(),link:inv.link});
+    slot.innerHTML='<div class="hint">// reply sent — if they open it in time they reach your room; chat then never expires</div>';
+  };
+  $('cancelVisitorBtn').onclick=()=>{try{session.conn.close()}catch(e){}slot.innerHTML='';};
+}
+function hostKnockReply(session,o){
+  const slot=$('knockReplySlot');
+  slot.innerHTML=`<div class="panel card">
+    <div class="big">✉ REPLY FROM ${esc(o.n||'visitor')}</div>
+    <p class="hint">"Hey you visited me" — link valid 30 min</p>
+    <button class="btn solid" id="openVisitBtn">OPEN SECURE CHAT &gt;&gt;</button></div>`;
+  $('openVisitBtn').onclick=()=>openLink(o.link);
+}
+
+/* ============================================================
+   NOTIFICATIONS  ("CC Chat connected" + new messages)
+============================================================ */
+function askNotify(){try{if('Notification' in window&&Notification.permission==='default')Notification.requestPermission();}catch(e){}}
+async function notify(title,body){
+  try{
+    if(!('Notification' in window)||Notification.permission!=='granted')return;
+    const reg=await navigator.serviceWorker?.getRegistration?.();
+    if(reg&&reg.showNotification)reg.showNotification(title,{body});
+    else new Notification(title,{body});
+  }catch(e){}
+}
+function notifyMsg(who,txt){if(document.hidden)notify('CYBER CHAT — '+who,txt.slice(0,100));}
+
+/* ============================================================
+   ACCOUNTLESS NUDGE — appears once, after 20 min of use
+============================================================ */
+function showNudge(){
+  if(hasAcc())return;
+  if(activeSession)return; // never interrupt a live chat
+  const n=$('nudge');
+  n.style.cssText='display:flex';
+  n.classList.add('on');
+  $('nudgeMsg').textContent='// create an account to stop sharing links for chatting — stay secure & anonymous';
+}
+$('nudgeX').onclick=()=>{$('nudge').classList.remove('on');$('nudge').style.cssText='';};
+
+/* ============================================================
+   PRIVACY GUARD — hides the interface on focus loss / capture keys
+============================================================ */
+const guard=$('guard');
+function showGuard(){guard.classList.add('on')}
+guard.addEventListener('click',()=>guard.classList.remove('on'));
+document.addEventListener('visibilitychange',()=>{if(document.hidden)showGuard()});
+window.addEventListener('blur',showGuard);
+window.addEventListener('focus',()=>guard.classList.remove('on'));
+document.addEventListener('contextmenu',e=>e.preventDefault());
+document.addEventListener('keydown',e=>{
+  const k=e.key.toLowerCase();
+  if(e.key==='PrintScreen'||(e.ctrlKey&&k==='p')||(e.metaKey&&e.shiftKey&&['3','4','5'].includes(e.key))){
+    showGuard();e.preventDefault();
+  }
+});
+window.addEventListener('keyup',e=>{if(e.key==='PrintScreen')showGuard();});
+
+/* service worker (mobile notifications / PWA) */
+if('serviceWorker' in navigator&&location.protocol==='https:'){
+  navigator.serviceWorker.register('sw.js').catch(()=>{});
+}
+</script>
+</body>
+</html>
